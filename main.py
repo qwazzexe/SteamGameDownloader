@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QLabel, QPushButton, QLineEdit, QFileDialog, QMessageBox, QHBoxLayout, QFrame, QSizePolicy
+    QApplication, QWidget, QVBoxLayout, QLabel, QPushButton, QLineEdit, QFileDialog, QMessageBox, QHBoxLayout, QSizePolicy
 )
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QFont, QDesktopServices, QIcon
@@ -9,6 +9,7 @@ import subprocess
 import zipfile
 import shutil
 import requests
+import platform
 
 DARK_GREEN_STYLE = '''
 QWidget {
@@ -104,7 +105,6 @@ class SteamUploader(QWidget):
         super().__init__()
         self.setWindowTitle('Steam Game Downloader')
         self.setMinimumSize(600, 530)
-        self.setMaximumSize(16777215, 16777215)
         self._min_width = 600
         self._min_height = 530
         self.setStyleSheet(DARK_GREEN_STYLE)
@@ -131,7 +131,7 @@ class SteamUploader(QWidget):
 
         path_layout = QHBoxLayout()
         self.path_edit = QLineEdit()
-        self.path_edit.setPlaceholderText('Steam klasörünü seçin...')
+        self.path_edit.setPlaceholderText('Steam klasörünü seçin veya otomatik bulunacak...')
         self.path_edit.setMinimumWidth(200)
         self.path_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         path_layout.addWidget(self.path_edit, stretch=3)
@@ -190,7 +190,6 @@ class SteamUploader(QWidget):
 
         main_layout.addLayout(button_layout)
 
-        # Version info label (bottom right, above footer)
         self.version_label = QLabel()
         self.version_label.setAlignment(Qt.AlignRight)
         self.version_label.setStyleSheet('color: #b6f5c6; font-size: 12px; margin-bottom: 2px;')
@@ -204,11 +203,41 @@ class SteamUploader(QWidget):
         main_layout.addWidget(footer)
 
         self.setLayout(main_layout)
+
+        # Otomatik steam klasörünü tespit et ve path_edit'e koy
+        detected_path = self.auto_detect_steam_path()
+        if detected_path:
+            self.path_edit.setText(detected_path)
+
         self.check_version()
 
-    def check_version(self):
-        import requests
+    def auto_detect_steam_path(self):
+        system = platform.system()
+        possible_paths = []
+        if system == 'Windows':
+            possible_paths = [
+                os.path.expandvars(r'%ProgramFiles(x86)%\Steam'),
+                os.path.expandvars(r'%ProgramFiles%\Steam'),
+                os.path.expandvars(r'%LocalAppData%\Programs\Steam'),
+            ]
+        elif system == 'Darwin':  # macOS
+            possible_paths = [
+                os.path.expanduser('~/Library/Application Support/Steam'),
+                '/Applications/Steam.app/Contents',
+            ]
+        elif system == 'Linux':
+            possible_paths = [
+                os.path.expanduser('~/.steam/steam'),
+                os.path.expanduser('~/.local/share/Steam'),
+            ]
+        for path in possible_paths:
+            if os.path.exists(path) and os.path.isdir(path):
+                steam_exe = os.path.join(path, 'steam.exe' if system == 'Windows' else 'steam')
+                if os.path.exists(steam_exe) or system != 'Windows':
+                    return path
+        return None
 
+    def check_version(self):
         CURRENT_VERSION = "1.0.0"
         VERSION_URL = "https://raw.githubusercontent.com/marcellusdev2/SteamGameDownloader/refs/heads/main/version.txt"
 
@@ -225,7 +254,7 @@ class SteamUploader(QWidget):
             else:
                 self.version_label.setText("Sürüm kontrolü başarısız")
                 self.version_label.setStyleSheet('color: #ff6666; font-size: 12px; margin-bottom: 2px;')
-        except Exception as e:
+        except Exception:
             self.version_label.setText("Sürüm kontrol hatası")
             self.version_label.setStyleSheet('color: #ff6666; font-size: 12px; margin-bottom: 2px;')
 
@@ -248,9 +277,6 @@ class SteamUploader(QWidget):
         msg.exec()
 
     def process_zip(self, zip_path):
-        import zipfile
-        import shutil
-        import requests
         steam_path = self.path_edit.text().strip()
         if not steam_path:
             self.show_info('Hata', 'Lütfen önce Steam klasörünü seçin!')
@@ -272,7 +298,7 @@ class SteamUploader(QWidget):
                 dlc_ids = data.get(game_id, {}).get('data', {}).get('dlc', [])
                 if not isinstance(dlc_ids, list):
                     dlc_ids = []
-            except Exception as e:
+            except Exception:
                 dlc_ids = []
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 lua_count = 0
@@ -300,7 +326,7 @@ class SteamUploader(QWidget):
                     if add_line not in existing_lines:
                         f.write(add_line)
                         new_count += 1
-            self.show_info('Başarılı', f'Oyun dosyaları başarılı bir şekilde steam klasörüne kopyalandı!\nDLC dosyasına {new_count} adet yeni DLC eklendi.')
+            self.show_info('Başarılı', f'Oyun dosyaları başarılı bir şekilde Steam klasörüne kopyalandı!\nDLC dosyasına {new_count} adet yeni DLC eklendi.')
         except Exception as e:
             self.show_info('Hata', f'Bir hata oluştu:\n{e}')
 
@@ -339,4 +365,4 @@ if __name__ == '__main__':
         app.setWindowIcon(QIcon(icon_path))
     window = SteamUploader()
     window.show()
-    sys.exit(app.exec()) 
+    sys.exit(app.exec())
